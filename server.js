@@ -171,8 +171,9 @@ async function loadClaudeTokenizer(modelPath) {
     }
 }
 
-function countClaudeTokens(tokenizer, messages) {
-    const convertedPrompt = convertClaudePrompt(messages, false, false);
+
+function countClaudeTokens(tokenizer, messages, user_name, char_name) {
+    const convertedPrompt = convertClaudePrompt(messages, user_name, char_name);
 
     // Fallback to strlen estimation
     if (!tokenizer) {
@@ -3120,8 +3121,10 @@ function convertChatMLPrompt(messages) {
     return messageStrings.join("\n");
 }
 
+
+
 // Prompt Conversion script taken from RisuAI by @kwaroran (GPLv3).
-function convertClaudePrompt(messages, addHumanPrefix, addAssistantPostfix) {
+function convertClaudePrompt(messages, user_name, char_name) {
     // Claude doesn't support message names, so we'll just add them to the message content.
     for (const message of messages) {
         if (message.name && message.role !== "system") {
@@ -3130,37 +3133,40 @@ function convertClaudePrompt(messages, addHumanPrefix, addAssistantPostfix) {
         }
     }
 
+    let i = 0;
+
+    const imax = messages.length;
+
     let requestPrompt = messages.map((v) => {
+        i++;
+
         let prefix = '';
         switch (v.role) {
             case "assistant":
-                prefix = "\n\nAssistant: ";
+                prefix = `\n\n${char_name}: `;
                 break
             case "user":
-                prefix = "\n\nHuman: ";
+                prefix = `\n\n${user_name}: `;
                 break
             case "system":
                 // According to the Claude docs, H: and A: should be used for example conversations.
                 if (v.name === "example_assistant") {
-                    prefix = "\n\nA: ";
+                    prefix = `\n\n${char_name}: `;
                 } else if (v.name === "example_user") {
-                    prefix = "\n\nH: ";
+                    prefix = `\n\n${user_name}: `;
                 } else {
-                    prefix = "\n\n";
+                    prefix = (i == imax) ? '\n\n' : `\n\nHuman: `;
                 }
                 break
+            case "raw_assistant":
+                prefix = '\n\nAssistant: ';
+                break;
+            case "raw_human":
+                prefix = '\n\nHuman: ';
+                break;
         }
         return prefix + v.content;
     }).join('');
-
-    if (addHumanPrefix) {
-        requestPrompt = "\n\nHuman: " + requestPrompt;
-    }
-
-    if (addAssistantPostfix) {
-        requestPrompt = requestPrompt + '\n\nAssistant: ';
-    }
-
     return requestPrompt;
 }
 
@@ -3212,6 +3218,54 @@ async function sendScaleRequest(request, response) {
     }
 }
 
+
+function fix_formatting(text) {
+    text = text
+          .replaceAll(/“|”/g, '"')
+          .replaceAll(/""/g, '"')
+          .replaceAll(/\*/g, '')
+          .replace(/ +\n/g, '\n').trim()
+          .replace(/^\s*[\*"]\s*(\r?\n|$)/gm, '')
+          .replace(/^\n+/, '')
+          .replace(/<[^>]*>/g, '')
+          .replace(/\.(\s*)([a-z])/g, (match, p1, p2) => `.${p1}${p2.toUpperCase()}`)
+          .replace(/([.,;:!?])([a-zA-Z])/g, '$1 $2');
+
+    const paragraphs = text.split('\n')
+
+    /*for (let i in paragraphs)
+        paragraphs[i] = formatParagraph(paragraphs[i], 50);*/
+
+    text = paragraphs.join('\n');
+
+    let sp = text.split(/(\n|")/g);
+
+    let is_dialogue = false;
+
+    let result = "";
+
+    is_dialogue = false;
+
+    for (let s of sp) {
+      if (s == '"') {
+          is_dialogue = !is_dialogue;
+
+          result += '"';
+
+          continue;
+      }
+
+      if (!is_dialogue && !(/^\s*$/.test(s))) {
+          s = s.replace(/^(\s*)/, '$1*');
+          s = s.replace(/(\s*)$/, '*$1');
+      }
+
+      result += s;
+    }
+
+    return result;
+}
+
 async function sendClaudeRequest(request, response) {
     const fetch = require('node-fetch').default;
 
@@ -3229,7 +3283,7 @@ async function sendClaudeRequest(request, response) {
             controller.abort();
         });
 
-        const requestPrompt = convertClaudePrompt(request.body.messages, true, true);
+        const requestPrompt = convertClaudePrompt(request.body.messages, request.body.additional_info.username, request.body.additional_info.charname);
         console.log('Claude request:', requestPrompt);
 
         const generateResponse = await fetch(api_url + '/complete', {
@@ -3273,8 +3327,10 @@ async function sendClaudeRequest(request, response) {
             }
 
             const generateResponseJson = await generateResponse.json();
-            const responseText = generateResponseJson.completion;
+            let responseText = generateResponseJson.completion;
             console.log('Claude response:', responseText);
+
+            responseText = fix_formatting(responseText);
 
             // Wrap it back to OAI format
             const reply = { choices: [{ "message": { "content": responseText, } }] };
@@ -3292,7 +3348,7 @@ app.post("/generate_openai", jsonParser, function (request, response_generate_op
     if (!request.body) return response_generate_openai.status(400).send({ error: true });
 
     if (request.body.use_claude) {
-        return sendClaudeRequest(request, response_generate_openai);
+        return sendClaudeRequest(request, response_generate_openai, request.body.additional_info);
     }
 
     if (request.body.use_scale) {
@@ -3348,7 +3404,7 @@ app.post("/generate_openai", jsonParser, function (request, response_generate_op
             "top_p": request.body.top_p,
             "top_k": request.body.top_k,
             "stop": request.body.stop,
-            "logit_bias": request.body.logit_bias
+            "logit_bias": request.body.logit_bias,
         },
         signal: controller.signal,
     };
@@ -3416,7 +3472,7 @@ app.post("/tokenize_openai", jsonParser, function (request, response_tokenize_op
     const model = getTokenizerModel(String(request.query.model || ''));
 
     if (model == 'claude') {
-        num_tokens = countClaudeTokens(claude_tokenizer, request.body);
+        num_tokens = countClaudeTokens(claude_tokenizer, request.body, request.query.username, request.query.charname);
         return response_tokenize_openai.send({ "token_count": num_tokens });
     }
 

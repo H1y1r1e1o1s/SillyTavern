@@ -2695,6 +2695,8 @@ async function Generate(type, { automatic_trigger, force_name2, resolve, reject,
                 padding: power_user.token_padding,
                 main_api: main_api,
                 instruction: isInstruct ? substituteParams(power_user.prefer_character_prompt && systemPrompt ? systemPrompt : power_user.instruct.system_prompt) : '',
+                username: name1,
+                charname: name2,
                 userPersona: (power_user.persona_description || ''),
             };
 
@@ -2707,10 +2709,10 @@ async function Generate(type, { automatic_trigger, force_name2, resolve, reject,
 
             if (main_api == 'openai') {
                 if (isStreamingEnabled() && type !== 'quiet') {
-                    streamingProcessor.generator = await sendOpenAIRequest(type, generate_data.prompt, streamingProcessor.abortController.signal);
+                    streamingProcessor.generator = await sendOpenAIRequest(type, generate_data.prompt, streamingProcessor.abortController.signal, additionalPromptStuff);
                 }
                 else {
-                    sendOpenAIRequest(type, generate_data.prompt, abortController.signal).then(onSuccess).catch(onError);
+                    sendOpenAIRequest(type, generate_data.prompt, abortController.signal, additionalPromptStuff).then(onSuccess).catch(onError);
                 }
             }
             else if (main_api == 'koboldhorde') {

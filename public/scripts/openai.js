@@ -706,7 +706,7 @@ function saveModelList(data) {
     // TODO Add ability to select OpenAI model from endpoint-provided list
 }
 
-async function sendOpenAIRequest(type, openai_msgs_tosend, signal) {
+async function sendOpenAIRequest(type, openai_msgs_tosend, signal, additionalInfo) {
     // Provide default abort signal
     if (!signal) {
         signal = new AbortController().signal;
@@ -745,6 +745,7 @@ async function sendOpenAIRequest(type, openai_msgs_tosend, signal) {
         "max_tokens": oai_settings.openai_max_tokens,
         "stream": stream,
         "logit_bias": logit_bias,
+        "additional_info": additionalInfo
     };
 
     // Proxy is only supported for Claude and OpenAI
@@ -976,7 +977,7 @@ function countTokens(messages, full = false) {
             jQuery.ajax({
                 async: false,
                 type: 'POST', //
-                url: `/tokenize_openai?model=${model}`,
+                url: `/tokenize_openai?model=${model}&username=${name1}&charname=${name2}`,
                 data: JSON.stringify([message]),
                 dataType: "json",
                 contentType: "application/json",
@@ -1949,7 +1950,7 @@ async function testApiConnection() {
     }
 
     try {
-        const reply = await sendOpenAIRequest('quiet', [{ 'role': 'user', 'content': 'Hi' }]);
+        const reply = await sendOpenAIRequest('quiet', [{ 'role': 'user', 'content': 'Hi' }], {});
         console.log(reply);
         toastr.success('API connection successful!');
     }
