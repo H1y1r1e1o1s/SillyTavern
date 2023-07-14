@@ -3094,7 +3094,7 @@ async function sendClaudeRequest(request, response) {
                 prompt: requestPrompt,
                 model: request.body.model,
                 max_tokens_to_sample: request.body.max_tokens,
-                stop_sequences: ["\n\nHuman:", "\n\nSystem:", "\n\nAssistant:"],
+                stop_sequences: ["\n\nHuman:", "\n\nSystem:", "\n\nAssistant:", "\n\n" +  request.body.additional_info.username + ":" ],
                 temperature: request.body.temperature,
                 top_p: request.body.top_p,
                 top_k: request.body.top_k,
